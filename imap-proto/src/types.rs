@@ -293,6 +293,13 @@ pub enum Attribute {
 }
 
 #[derive(Debug, Eq, PartialEq)]
+pub enum StoreFlagsMode {
+    Replace,
+    Add,
+    Remove,
+}
+
+#[derive(Debug, Eq, PartialEq)]
 pub enum MessageSection {
     Header,
     Mime,

@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::ops::{RangeFrom, RangeInclusive};
 use std::str;
+use crate::StoreFlagsMode;
 
 use crate::types::{AttrMacro, Attribute, State};
 
@@ -87,12 +88,144 @@ impl CommandBuilder {
             state: PhantomData::default(),
         }
     }
+
+    pub fn store() -> StoreCommand<store::Empty> {
+        StoreCommand {
+            args: b"STORE ".to_vec(),
+            state: PhantomData::default(),
+        }
+    }
+
+    pub fn uid_store() -> StoreCommand<store::Empty> {
+        StoreCommand {
+            args: b"UID STORE ".to_vec(),
+            state: PhantomData::default(),
+        }
+    }
 }
 
 pub struct Command {
     pub args: Vec<u8>,
     pub next_state: Option<State>,
 }
+
+pub mod store {
+    pub struct Empty;
+    pub struct Messages;
+    pub struct Flag;
+    pub struct Flags;
+}
+
+pub struct StoreCommand<T> {
+    args: Vec<u8>,
+    state: PhantomData<T>,
+}
+
+impl StoreCommand<store::Empty> {
+    pub fn num(mut self, num: u32) -> StoreCommand<store::Messages> {
+        sequence_num(&mut self.args, num);
+        StoreCommand {
+            args: self.args,
+            state: PhantomData::default(),
+        }
+    }
+
+    pub fn range(mut self, range: RangeInclusive<u32>) -> StoreCommand<store::Messages> {
+        sequence_range(&mut self.args, range);
+        StoreCommand {
+            args: self.args,
+            state: PhantomData::default(),
+        }
+    }
+
+    pub fn range_from(mut self, range: RangeFrom<u32>) -> StoreCommand<store::Messages> {
+        range_from(&mut self.args, range);
+        StoreCommand {
+            args: self.args,
+            state: PhantomData::default(),
+        }
+    }
+}
+
+impl StoreCommand<store::Messages> {
+    pub fn num(mut self, num: u32) -> StoreCommand<store::Messages> {
+        self.args.extend(b",");
+        sequence_num(&mut self.args, num);
+        self
+    }
+
+    pub fn range(mut self, range: RangeInclusive<u32>) -> StoreCommand<store::Messages> {
+        self.args.extend(b",");
+        sequence_range(&mut self.args, range);
+        self
+    }
+
+    pub fn range_from(mut self, range: RangeFrom<u32>) -> StoreCommand<store::Messages> {
+        self.args.extend(b",");
+        range_from(&mut self.args, range);
+        self
+    }
+
+    pub fn mode(mut self, mode: StoreFlagsMode, silent: bool) -> StoreCommand<store::Flag> {
+        self.args.extend(b" ");
+        match mode {
+            StoreFlagsMode::Replace => self.args.extend(b"FLAGS"),
+            StoreFlagsMode::Add => self.args.extend(b"+FLAGS"),
+            StoreFlagsMode::Remove => self.args.extend(b"-FLAGS"),
+        }
+        if silent {
+            self.args.extend(b".SILENT");
+        }
+        self.args.extend(b" (");
+        StoreCommand {
+            args: self.args,
+            state: PhantomData::default(),
+        }
+    }
+}
+
+impl StoreCommand<store::Flag> {
+    pub fn flag(mut self, flag: String) -> StoreCommand<store::Flags> {
+        self.args.extend(flag.as_bytes());
+        StoreCommand {
+            args: self.args,
+            state: PhantomData::default(),
+        }
+    }
+}
+
+impl From<StoreCommand<store::Flag>> for Command {
+    fn from(mut cmd: StoreCommand<store::Flag>) -> Self {
+        cmd.args.push(b')');
+        Command {
+            args: cmd.args,
+            next_state: None,
+        }
+    }
+}
+
+impl StoreCommand<store::Flags> {
+    pub fn flag(mut self, flag: String) -> StoreCommand<store::Flags> {
+        self.args.extend(b" ");
+        self.args.extend(flag.as_bytes());
+        StoreCommand {
+            args: self.args,
+            state: PhantomData::default(),
+        }
+    }
+}
+
+impl From<StoreCommand<store::Flags>> for Command {
+    fn from(mut cmd: StoreCommand<store::Flags>) -> Self {
+        cmd.args.push(b')');
+        Command {
+            args: cmd.args,
+            next_state: None,
+        }
+    }
+}
+
+
 
 pub struct SelectCommand<T> {
     args: Vec<u8>,
@@ -343,6 +476,7 @@ fn quoted_string(s: &str) -> Result<Cow<str>, &'static str> {
 
 #[cfg(test)]
 mod tests {
+    use crate::StoreFlagsMode;
     use super::{quoted_string, Attribute, Command, CommandBuilder};
 
     #[test]
@@ -382,6 +516,35 @@ mod tests {
             .attr(Attribute::ModSeq)
             .into();
         assert_eq!(cmd.args, &b"FETCH 1,2 (UID MODSEQ)"[..]);
+    }
+
+    #[test]
+    fn store() {
+        let cmd: Command = CommandBuilder::store()
+            .num(42)
+            .num(43)
+            .mode(StoreFlagsMode::Replace, false)
+            .flag("\\Answered".to_string())
+            .flag("\\Flagged".to_string())
+            .into();
+
+        assert_eq!(cmd.args, b"STORE 42,43 FLAGS (\\Answered \\Flagged)");
+
+        let cmd: Command = CommandBuilder::uid_store()
+            .num(5)
+            .mode(StoreFlagsMode::Add, true)
+            .flag("\\Seen".to_string())
+            .into();
+
+        assert_eq!(cmd.args, b"UID STORE 5 +FLAGS.SILENT (\\Seen)");
+
+        let cmd: Command = CommandBuilder::store()
+            .range_from(1..)
+            .mode(StoreFlagsMode::Add, true)
+            .flag("\\Seen".to_string())
+            .into();
+
+        assert_eq!(cmd.args, b"STORE 1:* +FLAGS.SILENT (\\Seen)");
     }
 
     #[test]
