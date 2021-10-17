@@ -65,6 +65,14 @@ impl CommandBuilder {
         }
     }
 
+    pub fn capability() -> Command {
+        let args = b"CAPABILITY".to_vec();
+        Command {
+            args,
+            next_state: None,
+        }
+    }
+
     pub fn select(mailbox: &str) -> SelectCommand<select::NoParams> {
         let args = format!("SELECT \"{}\"", quoted_string(mailbox).unwrap()).into_bytes();
         SelectCommand {
