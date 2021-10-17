@@ -282,6 +282,7 @@ impl<'a> Capability<'a> {
 #[non_exhaustive]
 pub enum Attribute {
     Body,
+    BodyPeek,
     Envelope,
     Flags,
     InternalDate,

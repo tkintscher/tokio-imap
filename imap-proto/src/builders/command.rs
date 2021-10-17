@@ -386,6 +386,7 @@ fn push_attr(cmd: &mut Vec<u8>, attr: Attribute) {
     cmd.extend(
         match attr {
             Attribute::Body => "BODY",
+            Attribute::BodyPeek => "BODY.PEEK[]",
             Attribute::Envelope => "ENVELOPE",
             Attribute::Flags => "FLAGS",
             Attribute::InternalDate => "INTERNALDATE",
